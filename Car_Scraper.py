@@ -1,9 +1,10 @@
 from lib import *
+from Utils import *
 
 SAVE_DIR_PATH = "."
 INITIAL_URL = "https://www.carsales.com.au"
 CAR_FEATURES_CSS_CLASS = "col features-item-value features-item-value-"
-CAR_FEATURES = ("network-id", "vehicle", "price", "kilometers", "colour", "interior-colour", "transmission", "body", "engine", "model-year", "fuel-consumption-combined")
+CAR_FEATURES = ["network-id", "vehicle", "price", "kilometers", "colour", "interior-colour", "transmission", "body", "engine", "model-year", "fuel-consumption-combined"]
 INITIAL_HEADERS = {
 "authority": "www.carsales.com.au",
 "path": "/",
@@ -24,7 +25,7 @@ INITIAL_HEADERS = {
 }
 
 class Car_Scrapper(requests.Session):
-    def __init__(self,init_url=INITIAL_URL, car_features=CAR_FEATURES, features_class=CAR_FEATURES_CSS_CLASS, init_headers=INITIAL_HEADERS, dir_path=SAVE_DIR_PATH, brand="Audi", model="A1"):
+    def __init__(self,init_url=INITIAL_URL, car_features=CAR_FEATURES, features_class=CAR_FEATURES_CSS_CLASS, init_headers=INITIAL_HEADERS, dir_path=SAVE_DIR_PATH, brand="Audi", model="a1"):
         super().__init__() # Inherite methods and attributes of requests.Session class
 
         self.car_features = car_features
@@ -34,7 +35,6 @@ class Car_Scrapper(requests.Session):
 
 
         self.headers = init_headers
-        self.listing_page_url = init_url
         self.filter_page_url = init_url
         self.path = "/"
 
@@ -47,7 +47,7 @@ class Car_Scrapper(requests.Session):
 
         self.brand = brand
         self.model = model
-        self.current_id = 1
+        self.car_id = 1
 
 
     def goToCars(self):
@@ -65,11 +65,11 @@ class Car_Scrapper(requests.Session):
         self.filter_page_soup = BeautifulSoup(self.filter_page_response.text, "html.parser")
 
     def scrapeListingLinks(self):
-        listing_carousel_tags =  self.filter_page_soup.find_All(class_="carousel slide lazy js-encode-search")
+        listing_carousel_tags =  self.filter_page_soup.find_all("a", class_="carousel slide lazy js-encode-search")
 
         self.listing_links = []
         for listing in listing_carousel_tags:
-            self.listing_links.append(listing["href"])
+            self.listing_links.append("https://www.carsales.com.au/" + listing["href"])
 
     def requestListingPage(self, url):
 
@@ -103,7 +103,7 @@ class Car_Scrapper(requests.Session):
                 except AttributeError:
                     row.append(None)
 
-        self.df.append(dict(zip(["brand", "model", "car_id"] + self.car_features, row)))
+        self.df.append(dict(zip(["brand", "model", "car_id"] + self.car_features, row)), ignore_index=True)
 
     def _getImageLinksFromListing(self):
 
@@ -129,27 +129,42 @@ class Car_Scrapper(requests.Session):
 
         return image_urls
 
-    def saveImages(self, image_urls):
+    def saveImages(self, image_urls, to_cloud=True):
 
-        brand_path = os.path.join(self.dir_path, self.brand)
-        model_path = os.path.join(self.brand, self.model)
+        brand_path = self.dir_path + "/" + self.brand
+        model_path = self.brand + "/" + self.model
 
         # Create directory for car brand and model if doesn't exists already
-        if not os.path.isdir(brand_path):
-            os.mkdir(brand_path)
-            os.mkdir(model_path)
-        else:
-            if not os.path.isdir(model_path):
+        if not to_cloud:
+            brand_path = os.path.join(self.dir_path, self.brand)
+            model_path = os.path.join(self.brand, self.model)
+            if not os.path.isdir(brand_path):
+                os.mkdir(brand_path)
                 os.mkdir(model_path)
+            else:
+                if not os.path.isdir(model_path):
+                    os.mkdir(model_path)
+
+
 
         for i, img_url in enumerate(image_urls):
             # Request image and save
-            ##### MIGHT TRY AND HANDLE WHAT HAPPENS IF BANNED #########
             response = requests.get(img_url)
-            file_path = os.path.join(model_path, f"{self.car_id}_{i}.png")
-            file = open(file_path, "wb")
-            file.write(response.content)
-            file.close()
+
+            cropped_images = downSizeImage(response.content, new_size=512)
+            for j, im in enumerate(cropped_images):
+
+                if to_cloud:
+                    file_path = model_path + "/" + f"{self.car_id}_{i}_crop_{j}.jpeg"
+                    in_mem_file = io.BytesIO()
+                    im.save(in_mem_file, format="JPEG")
+                    in_mem_file.seek(0)
+                    uploadFileToS3(in_mem_file, file_path)
+
+                else:
+                    file_path = os.path.join(model_path, f"{self.car_id}_{i}_crop_{j}.jpeg")
+                    im.save(file_path, format="JPEG")
+
             # Sleep for 3 seconds before making another request
             time.sleep(3)
 
@@ -159,7 +174,7 @@ class Car_Scrapper(requests.Session):
         self.saveImages(image_urls)
         self.getCarDetails()
 
-        self.current_id +=1
+        self.car_id +=1
 
 
     def scrapePageOfListings(self):
@@ -183,10 +198,14 @@ class Car_Scrapper(requests.Session):
                 self.scrapePageOfListings()
 
             else:
-                offset_val = re.search("(?<=\?offset\=)[0-9]*$",self.filter_page_url).group() # Extract Offset value from the url
+                offset_val = re.search("(?<=\?offset=)[0-9]*$",self.filter_page_url).group() # Extract Offset value from the url
                 new_val = str(int(offset_val) + 12) # Add 12 to represent next page of listings
-                self.filter_page_url = re.sub("(?<=\?offset\=)[0-9]*$", new_val, self.filter_page_url) # Replace new offset to existing one
+                self.filter_page_url = re.sub("(?<=\?offset=)[0-9]*$", new_val, self.filter_page_url) # Replace new offset to existing one
 
                 self.scrapePageOfListings()
 
+            logging.info(f"Scraped {i} pages.")
             i+=1
+
+
+
