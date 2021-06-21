@@ -1,5 +1,5 @@
 from lib import *
-from Utils import *
+from Utils import downSizeImage, uploadFileToS3
 
 SAVE_DIR_PATH = "."
 INITIAL_URL = "https://www.carsales.com.au"
@@ -59,6 +59,16 @@ class Car_Scrapper(requests.Session):
         self.headers["path"] = "/cars/" + self.brand + "/" + self.model + "/"
         self.headers["referer"] = self.filter_page_url
         self.filter_page_url += "/" + self.brand + "/" + self.model
+
+
+        self.filter_page_response = self.get(self.filter_page_url)
+        self.filter_page_soup = BeautifulSoup(self.filter_page_response.text, "html.parser")
+
+
+    def filterBrandOnly(self):
+        self.headers["path"] = "/cars/" + self.brand + "/"
+        self.headers["referer"] = self.filter_page_url
+        self.filter_page_url += "/" + self.brand
 
 
         self.filter_page_response = self.get(self.filter_page_url)
