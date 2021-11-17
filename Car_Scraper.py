@@ -1,45 +1,46 @@
-from lib import *
-from Utils import downSizeImage, uploadFileToS3
+from Utils import *
 
 SAVE_DIR_PATH = "."
 INITIAL_URL = "https://www.carsales.com.au"
 CAR_FEATURES_CSS_CLASS = "col features-item-value features-item-value-"
-CAR_FEATURES = ["network-id", "vehicle", "price", "kilometers", "colour", "interior-colour", "transmission", "body", "engine", "model-year", "fuel-consumption-combined"]
+CAR_FEATURES = ["network-id", "vehicle", "price", "kilometers", "colour", "interior-colour", "transmission", "body",
+                "engine", "model-year", "fuel-consumption-combined"]
 INITIAL_HEADERS = {
-"authority": "www.carsales.com.au",
-"path": "/",
-"sec-ch-ua": '" Not;A Brand";v="99", "Google Chrome";v="91", "Chromium";v="91"',
-"method": "GET",
-"scheme": "https",
-"accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
-"accept-encoding": "gzip, deflate, br",
-"accept-language": "en-US,en;q=0.9",
-"cache-control": "max-age=0",
-"sec-ch-ua-mobile": "?0",
-"sec-fetch-dest": "document",
-"sec-fetch-mode": "navigate",
-"sec-fetch-site": "none",
-"sec-fetch-user": "?1",
-"upgrade-insecure-requests": "1",
-"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.101 Safari/537.36",
+    "authority": "www.carsales.com.au",
+    "path": "/",
+    "sec-ch-ua": '" Not;A Brand";v="99", "Google Chrome";v="91", "Chromium";v="91"',
+    "method": "GET",
+    "scheme": "https",
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+    "accept-encoding": "gzip, deflate, br",
+    "accept-language": "en-US,en;q=0.9",
+    "cache-control": "max-age=0",
+    "sec-ch-ua-mobile": "?0",
+    "sec-fetch-dest": "document",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-site": "none",
+    "sec-fetch-user": "?1",
+    "upgrade-insecure-requests": "1",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.101 Safari/537.36",
 }
 
+
 class Car_Scrapper(requests.Session):
-    def __init__(self,init_url=INITIAL_URL, car_features=CAR_FEATURES, features_class=CAR_FEATURES_CSS_CLASS, init_headers=INITIAL_HEADERS, dir_path=SAVE_DIR_PATH, brand="Audi", model="a1"):
-        super().__init__() # Inherite methods and attributes of requests.Session class
+    def __init__(self, init_url=INITIAL_URL, car_features=CAR_FEATURES, features_class=CAR_FEATURES_CSS_CLASS,
+                 init_headers=INITIAL_HEADERS, dir_path=SAVE_DIR_PATH, brand="Audi", model="a1", car_id_start=1):
+        super().__init__()  # Inherite methods and attributes of requests.Session class
 
         self.car_features = car_features
         self.features_class = features_class
-        self.df = pd.DataFrame(columns=["brand", "model", "car_id"]+car_features)
+        self.df = pd.DataFrame(columns=["brand", "model", "car_id"] + car_features)
         self.dir_path = dir_path
-
 
         self.headers = init_headers
         self.filter_page_url = init_url
         self.path = "/"
 
-        self.listing_page_response = None     # HTML request response object
-        self.listing_page_soup = None         # Parsed HTML file
+        self.listing_page_response = None  # HTML request response object
+        self.listing_page_soup = None  # Parsed HTML file
         self.filter_page_response = None
         self.filter_page_soup = None
 
@@ -47,8 +48,7 @@ class Car_Scrapper(requests.Session):
 
         self.brand = brand
         self.model = model
-        self.car_id = 1
-
+        self.car_id = car_id_start
 
     def goToCars(self):
         self.headers["path"] = "/cars/"
@@ -60,22 +60,19 @@ class Car_Scrapper(requests.Session):
         self.headers["referer"] = self.filter_page_url
         self.filter_page_url += "/" + self.brand + "/" + self.model
 
-
         self.filter_page_response = self.get(self.filter_page_url)
         self.filter_page_soup = BeautifulSoup(self.filter_page_response.text, "html.parser")
-
 
     def filterBrandOnly(self):
         self.headers["path"] = "/cars/" + self.brand + "/"
         self.headers["referer"] = self.filter_page_url
         self.filter_page_url += "/" + self.brand
 
-
         self.filter_page_response = self.get(self.filter_page_url)
         self.filter_page_soup = BeautifulSoup(self.filter_page_response.text, "html.parser")
 
     def scrapeListingLinks(self):
-        listing_carousel_tags =  self.filter_page_soup.find_all("a", class_="carousel slide lazy js-encode-search")
+        listing_carousel_tags = self.filter_page_soup.find_all("a", class_="carousel slide lazy js-encode-search")
 
         self.listing_links = []
         for listing in listing_carousel_tags:
@@ -113,7 +110,7 @@ class Car_Scrapper(requests.Session):
                 except AttributeError:
                     row.append(None)
 
-        self.df.append(dict(zip(["brand", "model", "car_id"] + self.car_features, row)), ignore_index=True)
+        self.df = self.df.append(dict(zip(["brand", "model", "car_id"] + self.car_features, row)), ignore_index=True)
 
     def _getImageLinksFromListing(self):
 
@@ -130,16 +127,31 @@ class Car_Scrapper(requests.Session):
             # Make sure exists only in 1 script
             if re.search("var gallery_data", str(script.string)):
                 counter += 1
-                j = json.loads(re.search("{.*}", str(script.string)).group())
-                for image in j["media"]:
-                    # Save image urls
-                    image_urls.append(image["contentUrl"])
+                try:
+                    j = json.loads(re.search("{.*}", str(script.string)).group())
+                except:
+                    continue
+
+                ############ OLD STRUCTURE BEFORE THE SCRIPT STRUCTURE CHANGED -- ADAPTED VERSION BELOW ########################
+                # for image in j["media"]:
+                #     # Save image urls
+                #     try:
+                #         image_urls.append(image["contentUrl"])
+                #     except:
+                #         continue
+
+                for image in j["media"][0]["data"]:
+                    try:
+                        image_urls.append(image["contentUrl"])
+                    except:
+                        continue
 
         assert counter == 1, "There are more than one JavaScript in the HTML having 'var gallery_data' "
 
         return image_urls
 
-    def saveImages(self, image_urls, to_cloud=True):
+    # Not used at the moment. Using Padded Images instead
+    def saveCroppedImages(self, image_urls, to_cloud=False):
 
         brand_path = self.dir_path + "/" + self.brand
         model_path = self.brand + "/" + self.model
@@ -155,37 +167,89 @@ class Car_Scrapper(requests.Session):
                 if not os.path.isdir(model_path):
                     os.mkdir(model_path)
 
-
-
         for i, img_url in enumerate(image_urls):
             # Request image and save
-            response = requests.get(img_url)
 
-            cropped_images = downSizeImage(response.content, new_size=512)
+            try:
+                response = requests.get(img_url)
+                cropped_images = downSizeImageWithCrop(response.content, new_size=512)
+            except:
+                continue
+
             for j, im in enumerate(cropped_images):
 
                 if to_cloud:
                     file_path = model_path + "/" + f"{self.car_id}_{i}_crop_{j}.jpeg"
                     in_mem_file = io.BytesIO()
+                    try:
+                        im.save(in_mem_file, format="JPEG")
+                        in_mem_file.seek(0)
+                        uploadFileToS3(in_mem_file, file_path)
+                    except:
+                        continue
+
+                else:
+                    try:
+                        file_path = os.path.join(model_path, f"{self.car_id}_{i}_crop_{j}.jpeg")
+                        im.save(file_path, format="JPEG")
+                    except:
+                        continue
+
+            # Sleep for 3 seconds before making another request
+            time.sleep(0.05)
+
+    def savePaddedImages(self, image_urls, to_cloud=False):
+
+        brand_path = self.dir_path + "/" + self.brand
+        model_path = self.brand + "/" + self.model
+
+        # Create directory for car brand and model if doesn't exists already
+        if not to_cloud:
+            brand_path = os.path.join(self.dir_path, self.brand)
+            model_path = os.path.join(self.brand, self.model)
+            if not os.path.isdir(brand_path):
+                os.mkdir(brand_path)
+                os.mkdir(model_path)
+            else:
+                if not os.path.isdir(model_path):
+                    os.mkdir(model_path)
+
+        for i, img_url in enumerate(image_urls):
+            # Request image and save
+
+            try:
+                response = requests.get(img_url)
+                im = downSizeImageWithPadding(response.content, new_size=512)
+            except:
+                continue
+
+            if to_cloud:
+                file_path = model_path + "/" + f"{self.car_id}_{i}.jpeg"
+                in_mem_file = io.BytesIO()
+                try:
                     im.save(in_mem_file, format="JPEG")
                     in_mem_file.seek(0)
                     uploadFileToS3(in_mem_file, file_path)
+                except:
+                    continue
 
-                else:
-                    file_path = os.path.join(model_path, f"{self.car_id}_{i}_crop_{j}.jpeg")
+            else:
+                try:
+                    file_path = os.path.join(model_path, f"{self.car_id}_{i}.jpeg")
                     im.save(file_path, format="JPEG")
+                except:
+                    continue
 
             # Sleep for 3 seconds before making another request
-            time.sleep(3)
+            time.sleep(0.05)
 
     def scrapeOneListing(self, link) -> None:
         self.requestListingPage(link)
         image_urls = self._getImageLinksFromListing()
-        self.saveImages(image_urls)
+        self.savePaddedImages(image_urls)
         self.getCarDetails()
 
-        self.car_id +=1
-
+        self.car_id += 1
 
     def scrapePageOfListings(self):
         self.scrapeListingLinks()
@@ -193,29 +257,27 @@ class Car_Scrapper(requests.Session):
         for listing_url in self.listing_links:
             self.scrapeOneListing(listing_url)
 
-    def scrapeNPages(self, N):
+    def scrapeNPages(self, N, start_page_number=1):
 
         self.goToCars()
         self.filterBrandModel()
-        self.scrapePageOfListings() # Scrape first page of listings
+        self.scrapePageOfListings()  # Scrape first page of listings
 
 
-        i=1
-        while i < N:
+        while start_page_number < N:
 
             if self.filter_page_url.find("?offset") == -1:
                 self.filter_page_url += "/?offset=12"
                 self.scrapePageOfListings()
 
             else:
-                offset_val = re.search("(?<=\?offset=)[0-9]*$",self.filter_page_url).group() # Extract Offset value from the url
-                new_val = str(int(offset_val) + 12) # Add 12 to represent next page of listings
-                self.filter_page_url = re.sub("(?<=\?offset=)[0-9]*$", new_val, self.filter_page_url) # Replace new offset to existing one
+                offset_val = re.search("(?<=\?offset=)[0-9]*$",
+                                       self.filter_page_url).group()  # Extract Offset value from the url
+                new_val = str(int(offset_val) + 12)  # Add 12 to represent next page of listings
+                self.filter_page_url = re.sub("(?<=\?offset=)[0-9]*$", new_val,
+                                              self.filter_page_url)  # Replace new offset to existing one
 
                 self.scrapePageOfListings()
 
-            logging.info(f"Scraped {i} pages.")
-            i+=1
-
-
-
+            logging.info(f"Scraped {start_page_number} pages of {self.brand} {self.model}. Last car id = {self.car_id}")
+            start_page_number += 1
